@@ -218,8 +218,6 @@
 </style>
 <style>.hidden{display:none !important}</style>
 
-<h2 class="sr-only">TildaBite – food ordering app</h2>
-
 <!-- TOAST -->
 <div class="toast" id="toast"><i class="ti ti-circle-check"></i><span id="toast-msg">Added to cart!</span></div>
 
@@ -1093,9 +1091,16 @@ async function handleAuth(){
     if(!name){ showToast('Please enter your full name'); return; }
     if(!document.getElementById('signup-privacy-check').checked){ showToast('Please agree to the Terms & Conditions and Privacy Policy to continue'); return; }
     const { data: existing } = await sb.from('customers').select('id').eq('email', email).maybeSingle();
-    if(existing){ showToast('Account already exists. Please sign in.'); return; }
+    if(existing){ showToast('An account with this email already exists. Please sign in.'); return; }
     const { error } = await sb.from('customers').insert({ name, email, phone, password: pass });
-    if(error){ showToast('❌ '+error.message); return; }
+    if(error){
+      if(error.code === '23505' || /duplicate key/i.test(error.message)){
+        showToast('An account with this email already exists. Please sign in.');
+      } else {
+        showToast('❌ '+error.message);
+      }
+      return;
+    }
     showToast('Account created! Please sign in now.');
     setTimeout(()=>{ toggleAuth(); document.getElementById('login-identifier').value = email; }, 800);
     return;
