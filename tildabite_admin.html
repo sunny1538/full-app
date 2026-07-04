@@ -170,6 +170,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <div class="sidebar-nav">
       <button class="nav-item active" onclick="showView('overview',this)"><i class="ti ti-layout-dashboard"></i>Overview</button>
       <button class="nav-item" onclick="showView('orders',this)"><i class="ti ti-package"></i>Orders <span class="badge" id="pending-badge">0</span></button>
+      <button class="nav-item" onclick="showView('analytics',this)"><i class="ti ti-chart-bar"></i>Analytics</button>
+      <button class="nav-item" onclick="showView('customers',this)"><i class="ti ti-users"></i>Customers</button>
       <button class="nav-item" onclick="showView('riders',this)"><i class="ti ti-motorbike"></i>Riders</button>
       <button class="nav-item" onclick="showView('notifications',this)"><i class="ti ti-bell"></i>Notifications</button>
       <button class="nav-item" onclick="showView('menu-mgmt',this)"><i class="ti ti-clipboard-list"></i>Menu</button>
@@ -210,10 +212,29 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         <div class="filter-row" id="order-filters">
           <button class="filter-btn active" onclick="filterOrders('all',this)">All orders</button>
           <button class="filter-btn" onclick="filterOrders('pending',this)">Pending</button>
+          <button class="filter-btn" onclick="filterOrders('preparing',this)">Preparing</button>
           <button class="filter-btn" onclick="filterOrders('otw',this)">Out for delivery</button>
           <button class="filter-btn" onclick="filterOrders('delivered',this)">Delivered</button>
+          <button class="filter-btn" onclick="filterOrders('cancelled',this)">Cancelled</button>
         </div>
-        <div class="orders-table">
+        <div class="filter-row" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center">
+          <input type="text" id="order-search" placeholder="Search order ID, name or phone..." oninput="renderAllOrders()" style="flex:1;min-width:200px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+          <select id="order-date-filter" onchange="onDateFilterChange()" style="padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+            <option value="all">All time</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="week">This week</option>
+            <option value="month">This month</option>
+            <option value="custom">Custom range</option>
+          </select>
+          <input type="date" id="order-date-from" style="display:none;padding:7px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px" oninput="renderAllOrders()">
+          <input type="date" id="order-date-to" style="display:none;padding:7px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px" oninput="renderAllOrders()">
+          <select id="order-rider-filter" onchange="renderAllOrders()" style="padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+            <option value="all">All riders</option>
+          </select>
+          <button class="tb-btn" onclick="openExportModal()"><i class="ti ti-download" style="font-size:14px"></i> Export CSV</button>
+        </div>
+        <div class="orders-table" style="margin-top:12px">
           <div class="table-head"><div>Order ID</div><div>Customer</div><div>Amount</div><div>Status</div><div>Rider</div><div>Action</div></div>
           <div id="all-orders-body"></div>
         </div>
@@ -242,11 +263,69 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
             </div>
           </div>
         </div>
+
+        <!-- EXPORT CSV MODAL -->
+        <div class="modal-bg hidden" id="export-modal">
+          <div class="modal">
+            <h3>Export orders as CSV</h3>
+            <div class="modal-field"><label>From date</label>
+              <input type="date" id="export-from" style="width:100%;padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+            </div>
+            <div class="modal-field"><label>To date</label>
+              <input type="date" id="export-to" style="width:100%;padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+            </div>
+            <div class="modal-actions">
+              <button class="btn-cancel" onclick="closeExportModal()">Cancel</button>
+              <button class="btn-confirm" onclick="exportOrdersCSV()"><i class="ti ti-download" style="font-size:13px"></i> Download CSV</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- RIDERS -->
       <div class="view" id="view-riders">
         <div class="riders-grid" id="riders-grid"></div>
+      </div>
+
+      <!-- ANALYTICS -->
+      <div class="view" id="view-analytics">
+        <div class="filter-row" id="analytics-range">
+          <button class="filter-btn active" onclick="setAnalyticsRange('24h',this)">24 Hours</button>
+          <button class="filter-btn" onclick="setAnalyticsRange('week',this)">Week</button>
+          <button class="filter-btn" onclick="setAnalyticsRange('month',this)">Month</button>
+          <button class="filter-btn" onclick="setAnalyticsRange('year',this)">Year</button>
+        </div>
+        <div class="stat-grid" style="margin-top:14px">
+          <div class="stat-card s-orange"><div class="stat-label">Orders</div><div class="stat-val" id="an-orders">0</div></div>
+          <div class="stat-card s-green"><div class="stat-label">Revenue</div><div class="stat-val" id="an-revenue">₹0</div></div>
+          <div class="stat-card s-blue"><div class="stat-label">Avg order value</div><div class="stat-val" id="an-aov">₹0</div></div>
+        </div>
+        <div class="section-head" style="margin-top:20px"><h2>Orders trend</h2></div>
+        <div id="an-trend-chart" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;min-height:180px"></div>
+        <div class="section-head" style="margin-top:20px"><h2>Peak order hours</h2></div>
+        <div id="an-hours-chart" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;min-height:140px"></div>
+        <div class="section-head" style="margin-top:20px"><h2>Best-selling items</h2></div>
+        <div id="an-top-items" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:8px 16px"></div>
+      </div>
+
+      <!-- CUSTOMERS -->
+      <div class="view" id="view-customers">
+        <div class="filter-row" style="margin-bottom:12px">
+          <input type="text" id="customer-search" placeholder="Search by name, email or phone..." oninput="renderCustomers()" style="flex:1;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+        </div>
+        <div class="orders-table">
+          <div class="table-head" style="grid-template-columns:1fr 1fr 90px 90px 100px"><div>Customer</div><div>Contact</div><div>Orders</div><div>Spent</div><div>Tag</div></div>
+          <div id="customers-body" style="display:grid;grid-template-columns:1fr"></div>
+        </div>
+        <div class="modal-bg hidden" id="customer-history-modal">
+          <div class="modal" style="max-width:460px">
+            <h3>Order history</h3>
+            <div id="customer-history-body" style="font-size:13px;margin:14px 0;max-height:60vh;overflow-y:auto"></div>
+            <div class="modal-actions">
+              <button class="btn-cancel" onclick="closeCustomerHistory()">Close</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- NOTIFICATIONS -->
@@ -386,6 +465,9 @@ async function adminLoadRiders(){
   }));
   recomputeRiderOrderCounts();
   renderRiders();
+  const selEl = document.getElementById('order-rider-filter');
+  if(selEl) selEl.dataset.filled = '0';
+  populateRiderFilterOptions();
 }
 
 function recomputeRiderOrderCounts(){
@@ -399,12 +481,14 @@ async function adminRefreshOrders(){
     id:o.id, customer:o.customer_name, phone:o.customer_phone||'—',
     time: new Date(o.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),
     date: new Date(o.created_at).toLocaleDateString('en-IN'),
+    created_at: o.created_at,
     amount:o.total, subtotal:o.subtotal, tax:o.tax, status:o.status, rider:o.rider_name||null, rider_id:o.rider_id||null,
     otp:o.otp||null, address:o.address||'—', items:(o.items||[]).map(i=>({name:i.name, qty:i.qty, price:i.price}))
   }));
   recomputeRiderOrderCounts();
   renderAllOrders();renderRecentOrders();updateOverviewStats();renderRiders();
   if(document.getElementById('view-menu-mgmt')?.classList.contains('active')) renderMenuMgmt();
+  if(document.getElementById('view-analytics')?.classList.contains('active')) renderAnalytics();
 }
 
 // Realtime: orders & riders update instantly without polling
@@ -421,7 +505,7 @@ function adminSubscribeRealtime(){
 }
 
 function statusBadge(s){
-  const map={pending:'<span class="status-badge s-pending"><i class="ti ti-clock" style="font-size:10px"></i>Pending</span>',otw:'<span class="status-badge s-otw"><i class="ti ti-motorbike" style="font-size:10px"></i>Out for delivery</span>',delivered:'<span class="status-badge s-delivered"><i class="ti ti-check" style="font-size:10px"></i>Delivered</span>',cancelled:'<span class="status-badge s-cancelled">Cancelled</span>'};
+  const map={pending:'<span class="status-badge s-pending"><i class="ti ti-clock" style="font-size:10px"></i>Pending</span>',preparing:'<span class="status-badge s-pending"><i class="ti ti-chef-hat" style="font-size:10px"></i>Preparing</span>',otw:'<span class="status-badge s-otw"><i class="ti ti-motorbike" style="font-size:10px"></i>Out for delivery</span>',delivered:'<span class="status-badge s-delivered"><i class="ti ti-check" style="font-size:10px"></i>Delivered</span>',cancelled:'<span class="status-badge s-cancelled">Cancelled</span>'};
   return map[s]||s;
 }
 function actionCell(o){
@@ -433,7 +517,47 @@ function renderOrderRows(orders,targetId){
   document.getElementById(targetId).innerHTML=orders.map(o=>'<div class="table-row" id="row-'+o.id+'"><div class="table-cell order-id-cell">'+o.id+'</div><div class="table-cell" style="overflow:hidden"><div style="font-weight:600;font-size:13px">'+o.customer+'</div><div style="font-size:11px;color:var(--text3)">'+o.time+'</div></div><div class="table-cell">₹'+o.amount+'</div><div class="table-cell">'+statusBadge(o.status)+'</div><div class="table-cell" style="font-size:12px;color:var(--text2)">'+(o.rider||'—')+'</div><div class="table-cell" style="display:flex;gap:6px">'+actionCell(o)+' <button class="tb-btn" style="padding:4px 10px;font-size:11px" onclick="openOrderDetails(\''+o.id+'\')"><i class="ti ti-receipt" style="font-size:12px"></i> View</button></div></div>').join('');
 }
 function renderRecentOrders(){renderOrderRows(ORDERS.slice(0,5),'recent-orders-body');}
-function renderAllOrders(){ const filtered=currentFilter==='all'?ORDERS:ORDERS.filter(o=>o.status===currentFilter); renderOrderRows(filtered,'all-orders-body'); }
+function passesDateFilter(o){
+  const mode = document.getElementById('order-date-filter')?.value || 'all';
+  if(mode === 'all') return true;
+  const d = new Date(o.date.split('/').reverse().join('-')); // date is en-IN dd/mm/yyyy
+  const now = new Date(); now.setHours(0,0,0,0);
+  if(mode === 'today'){ return d.toDateString() === now.toDateString(); }
+  if(mode === 'yesterday'){ const y=new Date(now); y.setDate(y.getDate()-1); return d.toDateString()===y.toDateString(); }
+  if(mode === 'week'){ const w=new Date(now); w.setDate(w.getDate()-7); return d>=w; }
+  if(mode === 'month'){ return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); }
+  if(mode === 'custom'){
+    const from = document.getElementById('order-date-from').value;
+    const to = document.getElementById('order-date-to').value;
+    if(from && d < new Date(from)) return false;
+    if(to && d > new Date(to+'T23:59:59')) return false;
+    return true;
+  }
+  return true;
+}
+function onDateFilterChange(){
+  const mode = document.getElementById('order-date-filter').value;
+  document.getElementById('order-date-from').style.display = mode==='custom' ? 'block' : 'none';
+  document.getElementById('order-date-to').style.display = mode==='custom' ? 'block' : 'none';
+  renderAllOrders();
+}
+function renderAllOrders(){
+  const q = (document.getElementById('order-search')?.value||'').toLowerCase();
+  const riderF = document.getElementById('order-rider-filter')?.value || 'all';
+  let filtered = currentFilter==='all' ? ORDERS.slice() : ORDERS.filter(o=>o.status===currentFilter);
+  filtered = filtered.filter(passesDateFilter);
+  if(riderF !== 'all') filtered = filtered.filter(o => riderF==='unassigned' ? !o.rider_id : o.rider_id===riderF);
+  if(q) filtered = filtered.filter(o => o.id.toLowerCase().includes(q) || (o.customer||'').toLowerCase().includes(q) || (o.phone||'').toLowerCase().includes(q));
+  renderOrderRows(filtered,'all-orders-body');
+  populateRiderFilterOptions();
+}
+function populateRiderFilterOptions(){
+  const sel = document.getElementById('order-rider-filter');
+  if(!sel || sel.dataset.filled==='1') return;
+  sel.innerHTML = '<option value="all">All riders</option><option value="unassigned">Unassigned</option>' +
+    RIDERS.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
+  sel.dataset.filled='1';
+}
 function filterOrders(f,btn){ currentFilter=f; document.querySelectorAll('#order-filters .filter-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); renderAllOrders(); }
 function openAssign(orderId){ assigningOrder=orderId; document.getElementById('modal-order-label').textContent='Assigning rider for '+orderId; populateRiderSelect(); document.getElementById('assign-modal').classList.remove('hidden'); }
 function closeModal(){ document.getElementById('assign-modal').classList.add('hidden'); assigningOrder=null; }
@@ -667,13 +791,163 @@ async function deleteMenuItem(){
 function showView(v,btn){
   document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
   document.getElementById('view-'+v).classList.add('active');
-  const titles={overview:'Overview',orders:'All orders',riders:'Riders',notifications:'Notifications','menu-mgmt':'Menu management'};
+  const titles={overview:'Overview',orders:'All orders',analytics:'Analytics',customers:'Customers',riders:'Riders',notifications:'Notifications','menu-mgmt':'Menu management'};
   document.getElementById('page-title').textContent=titles[v]||v;
   if(btn){document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+  if(v==='analytics') renderAnalytics();
+  if(v==='customers') loadAndRenderCustomers();
 }
 let tTimer;
 function toast(msg){ clearTimeout(tTimer); document.getElementById('tmsg').textContent=msg; document.getElementById('toast').classList.add('show'); tTimer=setTimeout(()=>document.getElementById('toast').classList.remove('show'),2400); }
 function toggleTheme(){ isDark=!isDark; document.body.classList.toggle('dark',isDark); document.getElementById('theme-icon').className=isDark?'ti ti-sun':'ti ti-moon'; }
 function updateOverviewStats(){ const pending=ORDERS.filter(x=>x.status==='pending').length; const total=ORDERS.length; const revenue=ORDERS.filter(x=>x.status!=='cancelled').reduce((s,o)=>s+o.amount,0); const activeRiders=RIDERS.filter(r=>r.orders>0).length; document.getElementById('ov-pending').textContent=pending; document.getElementById('ov-total').textContent=total; document.getElementById('ov-revenue').textContent='₹'+revenue.toLocaleString('en-IN'); document.getElementById('ov-riders').textContent=activeRiders; document.getElementById('pending-badge').textContent=pending; }
+
+// ═══════════════════ ANALYTICS ═══════════════════
+let analyticsRange = '24h';
+function setAnalyticsRange(r,btn){
+  analyticsRange = r;
+  document.querySelectorAll('#analytics-range .filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderAnalytics();
+}
+function ordersInRange(range){
+  const now = new Date();
+  let from;
+  if(range==='24h'){ from = new Date(now.getTime() - 24*3600*1000); }
+  else if(range==='week'){ from = new Date(now.getTime() - 7*24*3600*1000); }
+  else if(range==='month'){ from = new Date(now.getFullYear(), now.getMonth(), 1); }
+  else if(range==='year'){ from = new Date(now.getFullYear(), 0, 1); }
+  return ORDERS.filter(o => new Date(o.created_at) >= from && o.status!=='cancelled');
+}
+function renderAnalytics(){
+  const orders = ordersInRange(analyticsRange);
+  const revenue = orders.reduce((s,o)=>s+o.amount,0);
+  const aov = orders.length ? Math.round(revenue/orders.length) : 0;
+  document.getElementById('an-orders').textContent = orders.length;
+  document.getElementById('an-revenue').textContent = '₹'+revenue.toLocaleString('en-IN');
+  document.getElementById('an-aov').textContent = '₹'+aov;
+
+  // Trend buckets: hourly for 24h, daily otherwise
+  let buckets = {};
+  let labelFn, keyFn;
+  if(analyticsRange==='24h'){
+    keyFn = d => d.getHours()+':00';
+    for(let h=0;h<24;h++) buckets[h+':00']=0;
+    orders.forEach(o=>{ const h=new Date(o.created_at).getHours(); buckets[h+':00'] = (buckets[h+':00']||0)+1; });
+  } else {
+    orders.forEach(o=>{
+      const d = new Date(o.created_at);
+      const key = d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
+      buckets[key] = (buckets[key]||0)+1;
+    });
+  }
+  const entries = Object.entries(buckets);
+  const maxV = Math.max(1, ...entries.map(e=>e[1]));
+  document.getElementById('an-trend-chart').innerHTML = entries.length ? `
+    <div style="display:flex;align-items:flex-end;gap:4px;height:140px;overflow-x:auto">
+      ${entries.map(([label,val])=>`
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:28px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">${val||''}</div>
+          <div style="width:18px;background:var(--accent);border-radius:3px 3px 0 0;height:${Math.max(2,(val/maxV)*100)}px"></div>
+          <div style="font-size:9px;color:var(--text3);margin-top:4px;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">${label}</div>
+        </div>`).join('')}
+    </div>` : '<div style="color:var(--text3);font-size:13px">No orders in this range yet.</div>';
+
+  // Peak hours (all orders in range, grouped by hour of day regardless of bucket mode)
+  const hourCounts = new Array(24).fill(0);
+  orders.forEach(o=>{ hourCounts[new Date(o.created_at).getHours()]++; });
+  const maxH = Math.max(1, ...hourCounts);
+  document.getElementById('an-hours-chart').innerHTML = `
+    <div style="display:flex;align-items:flex-end;gap:3px;height:100px">
+      ${hourCounts.map((v,h)=>`
+        <div title="${h}:00 — ${v} orders" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+          <div style="width:100%;background:var(--blue);border-radius:2px 2px 0 0;height:${Math.max(2,(v/maxH)*80)}px"></div>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);margin-top:4px"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span>11pm</span></div>
+  `;
+
+  // Best-selling items (from MENU_ITEMS sold column — reflects all-time; filtered by items in range for the range view)
+  const itemCounts = {};
+  orders.forEach(o=>{ (o.items||[]).forEach(i=>{ itemCounts[i.name] = (itemCounts[i.name]||0) + i.qty; }); });
+  const top = Object.entries(itemCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  document.getElementById('an-top-items').innerHTML = top.length ? top.map(([name,qty],i)=>`
+    <div style="display:flex;justify-content:space-between;padding:8px 0;${i<top.length-1?'border-bottom:1px solid var(--border)':''}">
+      <span>${i+1}. ${name}</span><span style="font-weight:700">${qty} sold</span>
+    </div>`).join('') : '<div style="color:var(--text3);font-size:13px;padding:8px 0">No sales in this range yet.</div>';
+}
+
+// ═══════════════════ CUSTOMERS ═══════════════════
+let CUSTOMERS_CACHE = [];
+async function loadAndRenderCustomers(){
+  const { data, error } = await sb.from('customers').select('*').order('created_at', { ascending: false });
+  if(error){ console.error(error); return; }
+  CUSTOMERS_CACHE = data;
+  renderCustomers();
+}
+function renderCustomers(){
+  const q = (document.getElementById('customer-search')?.value||'').toLowerCase();
+  const rows = CUSTOMERS_CACHE
+    .map(c => {
+      const theirOrders = ORDERS.filter(o => o.customer && (o.phone===c.phone || o.customer===c.name));
+      const spent = theirOrders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+o.amount,0);
+      return { ...c, orderCount: theirOrders.length, spent };
+    })
+    .filter(c => !q || c.name.toLowerCase().includes(q) || (c.email||'').toLowerCase().includes(q) || (c.phone||'').toLowerCase().includes(q))
+    .sort((a,b)=>b.orderCount-a.orderCount);
+  document.getElementById('customers-body').innerHTML = rows.map(c => `
+    <div class="table-row" style="grid-template-columns:1fr 1fr 90px 90px 100px;cursor:pointer" onclick="openCustomerHistory('${c.id}')">
+      <div class="table-cell"><div style="font-weight:600;font-size:13px">${c.name}</div></div>
+      <div class="table-cell" style="font-size:12px;color:var(--text2)">${c.email}<br>${c.phone||'—'}</div>
+      <div class="table-cell">${c.orderCount}</div>
+      <div class="table-cell">₹${c.spent}</div>
+      <div class="table-cell">${c.orderCount>=3 ? '<span class="status-badge s-delivered">Regular</span>' : '<span style="color:var(--text3);font-size:12px">New</span>'}</div>
+    </div>
+  `).join('') || '<div style="padding:20px;color:var(--text3);text-align:center">No customers found.</div>';
+}
+function openCustomerHistory(customerId){
+  const c = CUSTOMERS_CACHE.find(x=>x.id===customerId);
+  if(!c) return;
+  const theirOrders = ORDERS.filter(o => o.phone===c.phone || o.customer===c.name).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  document.getElementById('customer-history-body').innerHTML = `
+    <div style="margin-bottom:10px"><strong>${c.name}</strong><br><span style="color:var(--text2);font-size:12px">${c.email} · ${c.phone||'—'}</span></div>
+    ${theirOrders.map(o=>`
+      <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between"><strong>${o.id}</strong><span>${statusBadge(o.status)}</span></div>
+        <div style="font-size:12px;color:var(--text2)">${o.date} · ₹${o.amount}</div>
+      </div>
+    `).join('') || '<div style="color:var(--text3);font-size:13px">No orders yet.</div>'}
+  `;
+  document.getElementById('customer-history-modal').classList.remove('hidden');
+}
+function closeCustomerHistory(){ document.getElementById('customer-history-modal').classList.add('hidden'); }
+
+// ═══════════════════ CSV EXPORT ═══════════════════
+function openExportModal(){ document.getElementById('export-modal').classList.remove('hidden'); }
+function closeExportModal(){ document.getElementById('export-modal').classList.add('hidden'); }
+function exportOrdersCSV(){
+  const from = document.getElementById('export-from').value;
+  const to = document.getElementById('export-to').value;
+  if(!from || !to){ toast('Select both from and to dates'); return; }
+  const fromD = new Date(from);
+  const toD = new Date(to+'T23:59:59');
+  const rows = ORDERS.filter(o => { const d=new Date(o.created_at); return d>=fromD && d<=toD; });
+  if(!rows.length){ toast('No orders found in that range'); return; }
+  const header = ['Order ID','Date','Time','Customer','Phone','Address','Items','Subtotal','Tax','Total','Status','Rider','OTP'];
+  const csvRows = rows.map(o => [
+    o.id, o.date, o.time, o.customer, o.phone, `"${(o.address||'').replace(/"/g,'""')}"`,
+    `"${o.items.map(i=>i.name+' x'+i.qty).join('; ').replace(/"/g,'""')}"`,
+    o.subtotal, o.tax, o.amount, o.status, o.rider||'—', o.otp||'—'
+  ]);
+  const csv = [header.join(','), ...csvRows.map(r=>r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `tildabite_orders_${from}_to_${to}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  closeExportModal();
+  toast('CSV downloaded ✓');
+}
 </script>
 </html>
