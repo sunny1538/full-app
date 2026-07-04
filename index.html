@@ -482,15 +482,20 @@ function nextOpeningDate(openingTime){
   if(target <= now) target.setDate(target.getDate()+1);
   return target;
 }
+function nextOpeningDateAfter(openingTime, fromDate){
+  const [h,m] = openingTime.split(':').map(Number);
+  let target = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate(), h, m, 0);
+  if(target <= fromDate) target.setDate(target.getDate()+1);
+  return target;
+}
 function isEffectivelyOpen(){
   if(STORE_SETTINGS.is_open) return true;
   if(STORE_SETTINGS.auto_reopen){
-    const [oh, om] = STORE_SETTINGS.opening_time.split(':').map(Number);
-    const [ch, cm] = STORE_SETTINGS.closing_time.split(':').map(Number);
-    const now = new Date();
-    const openMins = oh*60+om, closeMins = ch*60+cm, nowMins = now.getHours()*60+now.getMinutes();
-    if(closeMins > openMins) return nowMins >= openMins && nowMins < closeMins;
-    return nowMins >= openMins || nowMins < closeMins; // overnight hours
+    // Only auto-reopen once the next scheduled opening time SINCE the manual close has passed.
+    // (Just checking "is now inside 10am-11pm?" would ignore a same-day manual close.)
+    const closedAt = STORE_SETTINGS.updated_at ? new Date(STORE_SETTINGS.updated_at) : new Date(0);
+    const nextOpen = nextOpeningDateAfter(STORE_SETTINGS.opening_time, closedAt);
+    return new Date() >= nextOpen;
   }
   return false;
 }
@@ -524,7 +529,8 @@ function startCountdown(){
   if(countdownInterval) clearInterval(countdownInterval);
   const tick = () => {
     if(isEffectivelyOpen()){ applyStoreStatus(); return; }
-    const target = nextOpeningDate(STORE_SETTINGS.opening_time);
+    const closedAt = STORE_SETTINGS.updated_at ? new Date(STORE_SETTINGS.updated_at) : new Date();
+    const target = nextOpeningDateAfter(STORE_SETTINGS.opening_time, closedAt);
     const diff = target - new Date();
     const hrs = Math.floor(diff/3600000);
     const mins = Math.floor((diff%3600000)/60000);
