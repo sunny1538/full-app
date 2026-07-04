@@ -479,6 +479,8 @@ const SUPABASE_KEY = 'sb_publishable_jdi0kBsjILGqFafMf9ywyg_oWh3pEhF';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const ADMIN_CREDENTIALS = { id: 'admin@tildabite.com', password: 'Admin@1234' };
+const ADMIN_SESSION_KEY = 'tildabite_admin_session';
+const ADMIN_SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 function adminLogin(){
   const id   = document.getElementById('admin-id-input').value.trim().toLowerCase();
@@ -490,15 +492,33 @@ function adminLogin(){
     document.getElementById('admin-pass-input').value=''; return;
   }
   errEl.style.display='none';
+  localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify({ expiresAt: Date.now() + ADMIN_SESSION_DURATION_MS }));
+  enterAdminShell();
+  toast('Welcome back, Admin! 👋');
+}
+
+function enterAdminShell(){
   document.getElementById('admin-login-screen').style.display='none';
   document.getElementById('admin-shell').style.display='flex';
   adminRefreshOrders(); adminLoadRiders(); adminLoadNotifications(); renderMenuMgmt();
   loadStoreSettings();
   adminSubscribeRealtime();
-  toast('Welcome back, Admin! 👋');
+}
+
+function restoreAdminSession(){
+  const raw = localStorage.getItem(ADMIN_SESSION_KEY);
+  if(!raw) return;
+  let saved;
+  try { saved = JSON.parse(raw); } catch(e){ localStorage.removeItem(ADMIN_SESSION_KEY); return; }
+  if(!saved || !saved.expiresAt || Date.now() > saved.expiresAt){
+    localStorage.removeItem(ADMIN_SESSION_KEY); // session expired after 24hrs — back to login screen
+    return;
+  }
+  enterAdminShell();
 }
 
 function adminSignOut(){
+  localStorage.removeItem(ADMIN_SESSION_KEY);
   document.getElementById('admin-shell').style.display='none';
   document.getElementById('admin-login-screen').style.display='flex';
   document.getElementById('admin-id-input').value='';
@@ -1089,5 +1109,6 @@ function exportOrdersCSV(){
   closeExportModal();
   toast('CSV downloaded ✓');
 }
+restoreAdminSession();
 </script>
 </html>
