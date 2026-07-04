@@ -216,11 +216,45 @@
   .diet-btn.active-veg .dot,.diet-btn.active-nonveg .dot,.diet-btn.active-all .dot{border-color:#fff}
   .diet-count-badge{font-size:11px;font-weight:600;background:var(--accent-bg);color:var(--accent);border-radius:20px;padding:2px 8px;margin-left:auto}
 </style>
+<style>.hidden{display:none !important}</style>
 
 <h2 class="sr-only">TildaBite – food ordering app</h2>
 
 <!-- TOAST -->
 <div class="toast" id="toast"><i class="ti ti-circle-check"></i><span id="toast-msg">Added to cart!</span></div>
+
+<!-- STORE CLOSED OVERLAY -->
+<div id="closed-overlay" class="hidden" style="position:fixed;inset:0;background:linear-gradient(160deg,var(--bg),var(--card));z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="max-width:420px;width:100%;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:36px 28px;box-shadow:0 20px 60px rgba(45,21,6,0.12)">
+    <div style="font-size:56px;margin-bottom:6px">😴</div>
+    <h2 style="font-size:21px;font-weight:800;margin-bottom:10px">We're taking a little break!</h2>
+    <p style="color:var(--text2);font-size:14px;line-height:1.6;margin-bottom:4px">Our kitchen is currently closed.<br>We'll be back and cooking fresh at <strong id="closed-opening-time">10:00 AM</strong>.</p>
+    <p style="color:var(--text2);font-size:14px;margin-bottom:20px">Thanks for your patience — see you soon! 🍽️</p>
+
+    <div id="closed-countdown" style="background:var(--accent-bg);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:18px">
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Opening in</div>
+      <div id="closed-countdown-text" style="font-size:22px;font-weight:800;color:var(--accent)">—</div>
+    </div>
+
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px">
+      <i class="ti ti-clock" style="font-size:14px;vertical-align:-2px"></i>
+      Today's hours: <strong id="closed-hours-text">10:00 AM – 11:00 PM</strong>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button class="nav-btn primary" style="width:100%;justify-content:center;padding:12px" onclick="requestOpenNotify()"><i class="ti ti-bell-ringing"></i> Notify me when open</button>
+      <button class="nav-btn" id="closed-call-btn" style="width:100%;justify-content:center;padding:12px;display:none" onclick="callRestaurant()"><i class="ti ti-phone"></i> Call us to order</button>
+      <button class="nav-btn" style="width:100%;justify-content:center;padding:12px" onclick="browseMenuReadOnly()"><i class="ti ti-menu-2"></i> Browse menu (can't order yet)</button>
+    </div>
+  </div>
+</div>
+
+<!-- BROWSING-WHILE-CLOSED BANNER -->
+<div id="closed-banner" class="hidden" style="position:fixed;top:0;left:0;right:0;z-index:400;background:var(--accent);color:#fff;padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:13px;font-weight:600">
+  <i class="ti ti-lock" style="font-size:15px"></i>
+  <span>Store is closed right now — you're browsing only</span>
+  <button onclick="showClosedOverlay()" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer">Back</button>
+</div>
 
 <!-- NAV -->
 <nav>
@@ -424,6 +458,114 @@ sb.channel('menu-changes-customer')
 
 const SAMPLE_ORDERS = [];
 let cart = {};
+
+// ─── STORE OPEN/CLOSED ────────────────────────────────────────
+let STORE_SETTINGS = { is_open:true, opening_time:'10:00', closing_time:'23:00', auto_reopen:true, phone:'' };
+let browsingWhileClosed = false;
+let countdownInterval = null;
+let notifyScheduled = false;
+
+function to12h(hhmm){
+  if(!hhmm) return '';
+  const [h,m] = hhmm.split(':').map(Number);
+  const ampm = h>=12 ? 'PM' : 'AM';
+  const h12 = h%12===0 ? 12 : h%12;
+  return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+}
+function nextOpeningDate(openingTime){
+  const [h,m] = openingTime.split(':').map(Number);
+  const now = new Date();
+  let target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+  if(target <= now) target.setDate(target.getDate()+1);
+  return target;
+}
+function isEffectivelyOpen(){
+  if(STORE_SETTINGS.is_open) return true;
+  if(STORE_SETTINGS.auto_reopen){
+    const [oh, om] = STORE_SETTINGS.opening_time.split(':').map(Number);
+    const [ch, cm] = STORE_SETTINGS.closing_time.split(':').map(Number);
+    const now = new Date();
+    const openMins = oh*60+om, closeMins = ch*60+cm, nowMins = now.getHours()*60+now.getMinutes();
+    if(closeMins > openMins) return nowMins >= openMins && nowMins < closeMins;
+    return nowMins >= openMins || nowMins < closeMins; // overnight hours
+  }
+  return false;
+}
+async function loadStoreSettings(){
+  const { data, error } = await sb.from('store_settings').select('*').eq('id',1).maybeSingle();
+  if(error || !data) return; // if table/row missing, app just behaves as always-open
+  STORE_SETTINGS = data;
+  applyStoreStatus();
+}
+function applyStoreStatus(){
+  if(isEffectivelyOpen()){
+    document.getElementById('closed-overlay').classList.add('hidden');
+    document.getElementById('closed-banner').classList.add('hidden');
+    browsingWhileClosed = false;
+    if(countdownInterval){ clearInterval(countdownInterval); countdownInterval=null; }
+  } else {
+    document.getElementById('closed-opening-time').textContent = to12h(STORE_SETTINGS.opening_time);
+    document.getElementById('closed-hours-text').textContent = `${to12h(STORE_SETTINGS.opening_time)} – ${to12h(STORE_SETTINGS.closing_time)}`;
+    document.getElementById('closed-call-btn').style.display = STORE_SETTINGS.phone ? 'flex' : 'none';
+    startCountdown();
+    if(browsingWhileClosed){
+      document.getElementById('closed-overlay').classList.add('hidden');
+      document.getElementById('closed-banner').classList.remove('hidden');
+    } else {
+      document.getElementById('closed-overlay').classList.remove('hidden');
+      document.getElementById('closed-banner').classList.add('hidden');
+    }
+  }
+}
+function startCountdown(){
+  if(countdownInterval) clearInterval(countdownInterval);
+  const tick = () => {
+    if(isEffectivelyOpen()){ applyStoreStatus(); return; }
+    const target = nextOpeningDate(STORE_SETTINGS.opening_time);
+    const diff = target - new Date();
+    const hrs = Math.floor(diff/3600000);
+    const mins = Math.floor((diff%3600000)/60000);
+    document.getElementById('closed-countdown-text').textContent = `${hrs}h ${mins}m`;
+  };
+  tick();
+  countdownInterval = setInterval(tick, 30000);
+}
+function showClosedOverlay(){
+  browsingWhileClosed = false;
+  applyStoreStatus();
+}
+function browseMenuReadOnly(){
+  browsingWhileClosed = true;
+  applyStoreStatus();
+  showToast('Browsing menu — ordering opens at '+to12h(STORE_SETTINGS.opening_time));
+}
+function callRestaurant(){
+  if(STORE_SETTINGS.phone) window.location.href = 'tel:'+STORE_SETTINGS.phone.replace(/\s/g,'');
+}
+function requestOpenNotify(){
+  if(!('Notification' in window)){ showToast('Notifications not supported on this browser'); return; }
+  if(Notification.permission === 'granted'){ scheduleOpenNotification(); return; }
+  Notification.requestPermission().then(perm=>{
+    if(perm === 'granted'){ scheduleOpenNotification(); }
+    else { showToast('Enable notifications in browser settings to get notified'); }
+  });
+}
+function scheduleOpenNotification(){
+  if(notifyScheduled){ showToast("You're already set — we'll notify you when we open!"); return; }
+  const target = nextOpeningDate(STORE_SETTINGS.opening_time);
+  const diff = target - new Date();
+  notifyScheduled = true;
+  showToast("Got it! We'll notify you when we open 🔔 (keep this tab open)");
+  setTimeout(()=>{
+    if(isEffectivelyOpen() || document.hidden === false){
+      new Notification('TildaBite is open! 🍽️', { body: "We're back — order your favourites now!" });
+    }
+  }, Math.max(0, diff));
+}
+// Realtime: reflect admin's open/close toggle instantly
+sb.channel('customer-store-settings')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'store_settings' }, () => loadStoreSettings())
+  .subscribe();
 let isDark = false;
 let authMode = 'signup';
 let currentCat = 'all';
@@ -557,6 +699,7 @@ function applyFilters(q){
 }
 
 function addItem(id){
+  if(!isEffectivelyOpen()){ showToast("We're closed right now — opening at "+to12h(STORE_SETTINGS.opening_time)); return; }
   if(!requireAuth('addItem')) return;
   const item = MENU.find(m=>m.id==id);
   if(!item || isOutOfStock(item)){ showToast('Sorry, this item is out of stock'); return; }
@@ -643,6 +786,7 @@ function selectPay(el){
 }
 
 async function placeOrder(){
+  if(!isEffectivelyOpen()){ showToast("We're closed right now — opening at "+to12h(STORE_SETTINGS.opening_time)); showClosedOverlay(); return; }
   if(!requireAuth('placeOrder')) return;
   const address = document.getElementById('delivery-address').value.trim();
   if(!address){ showToast('Please enter a delivery address'); return; }
@@ -852,5 +996,6 @@ showSkeleton();
   await loadSharedMenu();
   applyFilters('');
 })();
+loadStoreSettings();
 renderOrders();
 </script>
