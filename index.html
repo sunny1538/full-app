@@ -581,6 +581,36 @@ let currentCat = 'all';
 let dietFilter = 'all'; // 'all' | 'veg' | 'nonveg'
 let isLoggedIn = false;
 let loggedInUser = { name: 'Guest', email: '' };
+const SESSION_KEY = 'tildabite_session';
+const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function saveSession(acc){
+  localStorage.setItem(SESSION_KEY, JSON.stringify({
+    id: acc.id, name: acc.name, email: acc.email, phone: acc.phone,
+    expiresAt: Date.now() + SESSION_DURATION_MS
+  }));
+}
+function clearSession(){
+  localStorage.removeItem(SESSION_KEY);
+}
+function restoreSession(){
+  const raw = localStorage.getItem(SESSION_KEY);
+  if(!raw) return;
+  let saved;
+  try { saved = JSON.parse(raw); } catch(e){ clearSession(); return; }
+  if(!saved || !saved.expiresAt || Date.now() > saved.expiresAt){
+    clearSession(); // session expired after 24hrs — back to signed-out state
+    return;
+  }
+  isLoggedIn = true;
+  loggedInUser = { id: saved.id, name: saved.name, email: saved.email, phone: saved.phone };
+  document.getElementById('auth-nav-label').textContent = saved.name.split(' ')[0];
+  document.getElementById('auth-nav-btn').querySelector('i').className = 'ti ti-user-circle';
+  document.getElementById('profile-name-display').textContent = saved.name;
+  document.getElementById('profile-email-display').textContent = saved.email;
+  subscribeToMyOrders();
+  renderOrders();
+}
 
 function requireAuth(action) {
   if (!isLoggedIn) {
@@ -935,6 +965,7 @@ async function handleAuth(){
   if(acc.password !== pass){ showToast('Incorrect password. Please try again.'); document.getElementById('login-pass').value=''; return; }
   isLoggedIn = true;
   loggedInUser = { id: acc.id, name: acc.name, email: acc.email, phone: acc.phone };
+  saveSession(acc);
   document.getElementById('auth-nav-label').textContent = acc.name.split(' ')[0];
   document.getElementById('auth-nav-btn').querySelector('i').className = 'ti ti-user-circle';
   document.getElementById('profile-name-display').textContent = acc.name;
@@ -971,6 +1002,7 @@ function handleAuthNavClick(){
 function signOut(){
   isLoggedIn = false;
   loggedInUser = { name: 'Guest', email: '' };
+  clearSession();
   if(myOrdersChannel){ sb.removeChannel(myOrdersChannel); myOrdersChannel = null; }
   cart = {};
   updateCartUI();
@@ -1006,5 +1038,6 @@ showSkeleton();
   applyFilters('');
 })();
 loadStoreSettings();
+restoreSession();
 renderOrders();
 </script>
