@@ -367,6 +367,19 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         </div>
       </div>
 
+      <!-- STORE OPEN/CLOSE CONFIRMATION -->
+      <div class="modal-bg hidden" id="store-confirm-modal">
+        <div class="modal" style="max-width:380px;text-align:center">
+          <div id="store-confirm-icon" style="font-size:40px;margin-bottom:8px">🔔</div>
+          <h3 id="store-confirm-title" style="text-align:center;font-size:16px">Close the restaurant?</h3>
+          <p id="store-confirm-body" style="text-align:center">Customers won't be able to place new orders. They'll see a "We'll be available soon" screen until you reopen.</p>
+          <div class="modal-actions" style="justify-content:center">
+            <button class="btn-cancel" onclick="cancelStoreToggle()">Cancel</button>
+            <button class="btn-confirm" id="store-confirm-btn" onclick="confirmStoreToggle()">Yes, close now</button>
+          </div>
+        </div>
+      </div>
+
       <!-- NOTIFICATIONS -->
       <div class="view" id="view-notifications">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
@@ -519,18 +532,51 @@ function updateStoreStatusPill(){
     pill.style.color = 'var(--red)'; pill.style.borderColor = 'var(--rborder)';
   }
 }
-async function quickToggleStore(){
-  const newState = !STORE_SETTINGS.is_open;
+let _storeConfirmCheckbox = null; // set when the confirm was triggered from the Settings switch (so we can revert it on Cancel)
+let _pendingStoreState = null;
+
+function quickToggleStore(){
+  requestStoreToggle(!STORE_SETTINGS.is_open, null);
+}
+function onStoreToggleChange(){
+  const cb = document.getElementById('settings-is-open');
+  requestStoreToggle(cb.checked, cb);
+}
+function requestStoreToggle(newState, checkboxEl){
+  _storeConfirmCheckbox = checkboxEl;
+  _pendingStoreState = newState;
+  document.getElementById('store-confirm-icon').textContent = newState ? '✅' : '🌙';
+  document.getElementById('store-confirm-title').textContent = newState ? 'Open the restaurant?' : 'Close the restaurant?';
+  document.getElementById('store-confirm-body').textContent = newState
+    ? 'Customers will immediately be able to browse and place new orders again.'
+    : 'Customers won\u2019t be able to place new orders. They\u2019ll see a "We\u2019ll be available soon" screen until you reopen.';
+  const btn = document.getElementById('store-confirm-btn');
+  btn.textContent = newState ? 'Yes, open now' : 'Yes, close now';
+  btn.style.background = newState ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('store-confirm-modal').classList.remove('hidden');
+}
+function cancelStoreToggle(){
+  document.getElementById('store-confirm-modal').classList.add('hidden');
+  if(_storeConfirmCheckbox){ _storeConfirmCheckbox.checked = STORE_SETTINGS.is_open; }
+  updateStoreStatusPill();
+  _storeConfirmCheckbox = null; _pendingStoreState = null;
+}
+async function confirmStoreToggle(){
+  const newState = _pendingStoreState;
   const { error } = await sb.from('store_settings').update({ is_open: newState }).eq('id',1);
-  if(error){ toast('❌ '+error.message); return; }
+  document.getElementById('store-confirm-modal').classList.add('hidden');
+  if(error){
+    toast('❌ '+error.message);
+    if(_storeConfirmCheckbox){ _storeConfirmCheckbox.checked = STORE_SETTINGS.is_open; }
+    updateStoreStatusPill();
+    _storeConfirmCheckbox = null; _pendingStoreState = null;
+    return;
+  }
   STORE_SETTINGS.is_open = newState;
   document.getElementById('settings-is-open').checked = newState;
   updateStoreStatusPill();
-  toast(newState ? 'Store marked Open ✓' : 'Store marked Closed — customers will see the closed screen');
-}
-function onStoreToggleChange(){
-  // live-reflect on the pill immediately; actual save happens on "Save settings"
-  updateStoreStatusPill();
+  toast(newState ? 'Store marked Open ✓ — now visible to customers' : 'Store marked Closed — customers will see "We\u2019ll be available soon"');
+  _storeConfirmCheckbox = null; _pendingStoreState = null;
 }
 async function saveStoreSettings(){
   const payload = {
