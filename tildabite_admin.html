@@ -76,6 +76,12 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .table-cell{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:8px}
 .order-id-cell{font-weight:700;color:var(--accent);font-size:12px}
 .status-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.switch{position:relative;display:inline-block;width:46px;height:26px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{position:absolute;cursor:pointer;inset:0;background:var(--border2);border-radius:26px;transition:.2s}
+.switch .slider::before{position:absolute;content:"";height:20px;width:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked + .slider{background:var(--green)}
+.switch input:checked + .slider::before{transform:translateX(20px)}
 .s-pending{background:var(--ambg);color:var(--amber);border:1px solid var(--amborder)}
 .s-otw{background:var(--bbg);color:var(--blue);border:1px solid var(--bborder)}
 .s-delivered{background:var(--gbg);color:var(--green);border:1px solid var(--gborder)}
@@ -175,6 +181,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <button class="nav-item" onclick="showView('riders',this)"><i class="ti ti-motorbike"></i>Riders</button>
       <button class="nav-item" onclick="showView('notifications',this)"><i class="ti ti-bell"></i>Notifications</button>
       <button class="nav-item" onclick="showView('menu-mgmt',this)"><i class="ti ti-clipboard-list"></i>Menu</button>
+      <button class="nav-item" onclick="showView('settings',this)"><i class="ti ti-settings"></i>Settings</button>
     </div>
     <div class="sidebar-footer">
       <button class="nav-item" onclick="toggleTheme()"><i class="ti ti-moon" id="theme-icon"></i>Toggle theme</button>
@@ -185,6 +192,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <div class="topbar">
       <div class="topbar-title" id="page-title">Overview</div>
       <div class="topbar-right">
+        <button id="store-status-pill" onclick="quickToggleStore()" class="tb-btn" style="font-weight:700"><i class="ti ti-circle-filled" style="font-size:10px"></i> <span id="store-status-text">Loading...</span></button>
         <button class="tb-btn" onclick="adminRefreshOrders()"><i class="ti ti-refresh" style="font-size:14px"></i> Refresh</button>
         <button class="tb-btn accent"><i class="ti ti-user-circle" style="font-size:14px"></i> Admin</button>
         <button class="tb-btn" onclick="adminSignOut()" style="border-color:var(--red);color:var(--red)"><i class="ti ti-logout" style="font-size:14px"></i> Sign out</button>
@@ -328,6 +336,37 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         </div>
       </div>
 
+      <!-- SETTINGS -->
+      <div class="view" id="view-settings">
+        <div class="section-head"><h2>Store status</h2></div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;max-width:520px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+            <div>
+              <div style="font-weight:700;font-size:14px">Restaurant Open</div>
+              <div style="font-size:12px;color:var(--text3);margin-top:2px">Turn off to stop new orders instantly</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="settings-is-open" onchange="onStoreToggleChange()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="modal-field"><label>Opening time</label>
+            <input type="time" id="settings-opening-time" style="width:100%;padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+          </div>
+          <div class="modal-field"><label>Closing time</label>
+            <input type="time" id="settings-closing-time" style="width:100%;padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+          </div>
+          <div class="modal-field"><label>Restaurant phone (for "Call us" button)</label>
+            <input type="text" id="settings-phone" placeholder="98765 43210" style="width:100%;padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin:14px 0">
+            <input type="checkbox" id="settings-auto-reopen" style="width:16px;height:16px">
+            <label for="settings-auto-reopen" style="font-size:13px">Auto re-open once opening time is reached</label>
+          </div>
+          <button class="btn-confirm" style="width:100%;justify-content:center" onclick="saveStoreSettings()"><i class="ti ti-device-floppy" style="font-size:13px"></i> Save settings</button>
+        </div>
+      </div>
+
       <!-- NOTIFICATIONS -->
       <div class="view" id="view-notifications">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
@@ -441,6 +480,7 @@ function adminLogin(){
   document.getElementById('admin-login-screen').style.display='none';
   document.getElementById('admin-shell').style.display='flex';
   adminRefreshOrders(); adminLoadRiders(); adminLoadNotifications(); renderMenuMgmt();
+  loadStoreSettings();
   adminSubscribeRealtime();
   toast('Welcome back, Admin! 👋');
 }
@@ -455,6 +495,57 @@ function adminSignOut(){
 
 let RIDERS=[];
 let ORDERS=[]; let currentFilter='all'; let assigningOrder=null; let notifLog=[]; let isDark=false;
+let STORE_SETTINGS = { is_open:true, opening_time:'10:00', closing_time:'23:00', auto_reopen:true, phone:'' };
+
+async function loadStoreSettings(){
+  const { data, error } = await sb.from('store_settings').select('*').eq('id',1).maybeSingle();
+  if(error || !data){ console.error(error); return; }
+  STORE_SETTINGS = data;
+  document.getElementById('settings-is-open').checked = data.is_open;
+  document.getElementById('settings-opening-time').value = data.opening_time;
+  document.getElementById('settings-closing-time').value = data.closing_time;
+  document.getElementById('settings-phone').value = data.phone || '';
+  document.getElementById('settings-auto-reopen').checked = data.auto_reopen;
+  updateStoreStatusPill();
+}
+function updateStoreStatusPill(){
+  const pill = document.getElementById('store-status-pill');
+  const txt = document.getElementById('store-status-text');
+  if(STORE_SETTINGS.is_open){
+    txt.textContent = 'Open';
+    pill.style.color = 'var(--green)'; pill.style.borderColor = 'var(--gborder)';
+  } else {
+    txt.textContent = 'Closed';
+    pill.style.color = 'var(--red)'; pill.style.borderColor = 'var(--rborder)';
+  }
+}
+async function quickToggleStore(){
+  const newState = !STORE_SETTINGS.is_open;
+  const { error } = await sb.from('store_settings').update({ is_open: newState }).eq('id',1);
+  if(error){ toast('❌ '+error.message); return; }
+  STORE_SETTINGS.is_open = newState;
+  document.getElementById('settings-is-open').checked = newState;
+  updateStoreStatusPill();
+  toast(newState ? 'Store marked Open ✓' : 'Store marked Closed — customers will see the closed screen');
+}
+function onStoreToggleChange(){
+  // live-reflect on the pill immediately; actual save happens on "Save settings"
+  updateStoreStatusPill();
+}
+async function saveStoreSettings(){
+  const payload = {
+    is_open: document.getElementById('settings-is-open').checked,
+    opening_time: document.getElementById('settings-opening-time').value || '10:00',
+    closing_time: document.getElementById('settings-closing-time').value || '23:00',
+    phone: document.getElementById('settings-phone').value.trim(),
+    auto_reopen: document.getElementById('settings-auto-reopen').checked
+  };
+  const { error } = await sb.from('store_settings').update(payload).eq('id',1);
+  if(error){ toast('❌ '+error.message); return; }
+  STORE_SETTINGS = { ...STORE_SETTINGS, ...payload };
+  updateStoreStatusPill();
+  toast('Settings saved ✓ — live on customer app');
+}
 
 async function adminLoadRiders(){
   const { data, error } = await sb.from('riders').select('*').order('name');
@@ -501,6 +592,9 @@ function adminSubscribeRealtime(){
     .subscribe();
   sb.channel('admin-menu')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, () => renderMenuMgmt())
+    .subscribe();
+  sb.channel('admin-store-settings')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'store_settings' }, () => loadStoreSettings())
     .subscribe();
 }
 
@@ -791,7 +885,7 @@ async function deleteMenuItem(){
 function showView(v,btn){
   document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
   document.getElementById('view-'+v).classList.add('active');
-  const titles={overview:'Overview',orders:'All orders',analytics:'Analytics',customers:'Customers',riders:'Riders',notifications:'Notifications','menu-mgmt':'Menu management'};
+  const titles={overview:'Overview',orders:'All orders',analytics:'Analytics',customers:'Customers',riders:'Riders',notifications:'Notifications','menu-mgmt':'Menu management',settings:'Settings'};
   document.getElementById('page-title').textContent=titles[v]||v;
   if(btn){document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
   if(v==='analytics') renderAnalytics();
